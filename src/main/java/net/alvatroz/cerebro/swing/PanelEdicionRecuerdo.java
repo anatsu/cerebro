@@ -5,15 +5,19 @@
 package net.alvatroz.cerebro.swing;
 
 import jakarta.annotation.PostConstruct;
-import java.awt.Dimension;
+import java.awt.Color;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
-import java.awt.Point;
-import java.lang.reflect.InvocationTargetException;
-import java.util.Locale;
+import java.awt.Rectangle;
+import java.awt.event.ActionEvent;
+import java.awt.geom.Rectangle2D;
 import java.util.stream.Collectors;
+import javax.swing.AbstractAction;
+import javax.swing.ActionMap;
+import javax.swing.InputMap;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -21,7 +25,11 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultHighlighter;
+import javax.swing.text.Highlighter;
 import lombok.extern.slf4j.Slf4j;
 import net.alvatroz.cerebro.dto.Recuerdo;
 import net.alvatroz.cerebro.service.RecuerdoService;
@@ -76,8 +84,6 @@ public class PanelEdicionRecuerdo extends JPanel {
      */
     private JPanel panelAnterior;
 
-    private JScrollPane panelConScroll;
-
     /**
      * Inicializa los componentes graficos de este panel.
      */
@@ -97,7 +103,8 @@ public class PanelEdicionRecuerdo extends JPanel {
         res.insets = new Insets(3, 3, 3, 3);
         res.anchor = GridBagConstraints.CENTER;
         txtArea = new JTextArea();
-        panelConScroll = new JScrollPane(txtArea);
+
+        JScrollPane panelConScroll = new JScrollPane(txtArea);
         add(panelConScroll, res);
 
         res.gridx = 0;
@@ -180,6 +187,17 @@ public class PanelEdicionRecuerdo extends JPanel {
             cambiaContenidoDeVentana(padre, panelAnterior);
         });
 
+        InputMap im = txtArea.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = txtArea.getActionMap();
+        im.put(KeyStroke.getKeyStroke("control F"), "abrirBusqueda");
+        am.put("abrirBusqueda", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String buscado = JOptionPane.showInputDialog(PanelEdicionRecuerdo.this, "Cadena a buscar");
+                resaltaTexto(txtArea, buscado);
+            }
+        });
+
     }
 
     /**
@@ -217,27 +235,103 @@ public class PanelEdicionRecuerdo extends JPanel {
      * @param panel panel con el que se sustituira el contenido del jframe
      */
     public void cambiaContenidoDeVentana(final JFrame padre, JPanel panel) {
-        
-            SwingUtilities.invokeLater(() -> {
-                
-                
-                
-                log.info("Tamaño del scroll {} ", this.panelConScroll.getBounds().getSize());
-                
-                if (panel != padre.getContentPane()) {
-                    padre.setContentPane(panel);
-                }
-                log.info("Tamaño del scroll final {} ", this.panelConScroll.getBounds().getSize());
-                // el panel al crearse estaba chiquito como se esta rehusando al completo hay que pedir que se actualice.
-                // se pide al panel actualizarse pues pudo haber cambiado el tamaño de la ventana por solicitud del usuario
-                panel.updateUI();
-                
-                
-                
 
-            });
-        
+        SwingUtilities.invokeLater(() -> {
+
+            if (panel != padre.getContentPane()) {
+                padre.setContentPane(panel);
+            }
+
+            // el panel al crearse estaba chiquito como se esta rehusando al completo hay que pedir que se actualice.
+            // se pide al panel actualizarse pues pudo haber cambiado el tamaño de la ventana por solicitud del usuario
+            panel.updateUI();
+
+        });
 
     }
 
+    /**
+     * Busca un texto y lo resalta.
+     *
+     * @param textArea Area de texto donde se resaltará la información.
+     * @param textoABuscar cadena a buscar no es una expresion regular.
+     */
+    public void resaltaTexto(JTextArea textArea, String textoABuscar) {
+        
+
+        log.info("Texto a buscar: {}", textoABuscar);
+
+        Highlighter highlighter = textArea.getHighlighter();
+
+        highlighter.removeAllHighlights();
+
+        if (StringUtils.isNotBlank(textoABuscar)) {
+
+            String text = textArea.getText();
+            int longitudTextoABuscar = textoABuscar.length();
+            int longitudTotalTexto = text.length();
+
+            if (StringUtils.isNotBlank(text)) {
+
+                log.info("Intentando resaltar texto");
+                boolean encontroElTexto = 
+                        resaltaTexto(text, textoABuscar, longitudTextoABuscar, longitudTotalTexto, highlighter);
+                if( !encontroElTexto ){
+                    JOptionPane.showMessageDialog(this, "No se encontro : "+ textoABuscar);
+                }
+            }
+
+        }
+
+    }
+
+    /**
+     * Resalta un texto buscandolo en una cadena
+     * @param text Texto del JTextArea
+     * @param textoABuscar texto a buscar que podria no encontrarse.
+     * @param longitudTextoABuscar  tamaño del texto a buscar.
+     * @param longitudTotalTexto longitud del texto a buscar
+     * @param highlighter objeto para resaltar el texto.
+     * @return  retorna true si encontro algun texto
+     */
+    private boolean resaltaTexto( final String text, 
+                             final String textoABuscar,                               
+                             final int longitudTextoABuscar, 
+                             final int longitudTotalTexto,  
+                             Highlighter highlighter) {
+        int indicePrimerCoincidencia = -1;
+        final int ITERACIONES_MAX = 1000;
+        int iterador = 0;
+        Highlighter.HighlightPainter painter = new DefaultHighlighter.DefaultHighlightPainter(Color.YELLOW);
+        int indice = StringUtils.indexOfIgnoreCase(text, textoABuscar);
+        
+        try {
+            while (iterador < ITERACIONES_MAX && indice >= 0 && indice + longitudTextoABuscar < longitudTotalTexto) {
+                
+                if (indicePrimerCoincidencia == -1) {
+                    indicePrimerCoincidencia = indice;
+                }
+                
+                highlighter.addHighlight(indice, indice + longitudTextoABuscar, painter);
+                indice = StringUtils.indexOfIgnoreCase(text, textoABuscar, indice + longitudTextoABuscar);
+                
+                iterador++;
+            }
+        } catch (BadLocationException e) {
+            log.error("Fallo al intentar resaltar texto", e);
+        }
+        
+        if (indicePrimerCoincidencia != -1) {
+            txtArea.setCaretPosition(indicePrimerCoincidencia);
+            try {
+                Rectangle2D viewRect = txtArea.modelToView2D(indicePrimerCoincidencia);
+                if (viewRect != null) {
+                    txtArea.scrollRectToVisible(viewRect.getBounds());
+                }
+            } catch (Exception e) {
+                log.error("No se pudo cambiar el cursor de lugar");
+            }
+        }
+        return indicePrimerCoincidencia != -1;
+    }
 }
